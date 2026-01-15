@@ -174,5 +174,5 @@ void loop() {
   Serial.print(":");
   Serial.println(now.Minute());
 
-  delay(2000);  // five seconds
+  delay(2000);
 }
