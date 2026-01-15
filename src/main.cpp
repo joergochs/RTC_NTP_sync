@@ -1,55 +1,61 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <time.h>
-#include "secrets.h"
+#include <ThreeWire.h>
 #include <RtcDS1302.h>
 
-// WLAN-Daten
-const char* ssid = SECRET_SSID;
-const char* password = SECRET_PASS;
+const int IO = D4;    // DAT
+const int SCLK = D5;  // CLK
+const int CE = D2;    // RST
 
-// NTP Server Einstellungen
-const char* ntpServer = "de.pool.ntp.org";
-const long  gmtOffset_sec = 3600; // Für Deutschland (MEZ), bei Sommerzeit 7200
-const int   daylightOffset_sec = 3600;
-
-// DS1302 Pin Definitionen (Beispiel)
-// Ersetzen Sie D2, D3, D4 durch die tatsächlichen Pins Ihres Mikrocontrollers
-ThreeWire myWire(4,5,2); // IO, SCLK, CE
-RtcDS1302<ThreeWire> rtc(myWire);
+ThreeWire myWire(D4, D5, D2);  // IO, SCLK, CE
+RtcDS1302<ThreeWire> Rtc(myWire);
 
 void setup() {
-  Serial.begin(115200);
-  rtc.begin();
+  Serial.begin(9600);
 
-  // Verbindung mit WLAN herstellen
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  Serial.print("compiled: ");
+  Serial.print(__DATE__);
+  Serial.println(__TIME__);
+
+  Rtc.Begin();
+
+  RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
+
+
+  if (!Rtc.IsDateTimeValid()) {
+    // Common Causes:
+    //    1) first time you ran and the device wasn't running yet
+    //    2) the battery on the device is low or even missing
+
+    Serial.println("RTC lost confidence in the DateTime!");
+    Rtc.SetDateTime(compiled);
   }
-  Serial.println("WLAN verbunden.");
 
-  // Zeit vom NTP-Server abfragen
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  
-  // Warten, bis die Zeit empfangen wurde
-  time_t now  = time(nullptr);
-  while (now < 24 * 3600) { // Prüfen ob die Zeit gültig ist
-      delay(100);
-      now = time(nullptr);
+  if (Rtc.GetIsWriteProtected()) {
+    Serial.println("RTC was write protected, enabling writing now");
+    Rtc.SetIsWriteProtected(false);
   }
 
-  // NTP-Zeit in DS1302 schreiben
-  struct tm timeinfo;
-  localtime_r(&now, &timeinfo);
-  rtc.setDateTime(timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday, 
-                  timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  if (!Rtc.GetIsRunning()) {
+    Serial.println("RTC was not actively running, starting now");
+    Rtc.SetIsRunning(true);
+  }
 
-  Serial.println("DS1302 Uhrzeit wurde erfolgreich via NTP gesetzt.");
+  RtcDateTime now = Rtc.GetDateTime();
+  if (now < compiled) {
+    Serial.println("RTC is older than compile time!  (Updating DateTime)");
+    Rtc.SetDateTime(compiled);
+  } else if (now > compiled) {
+    Serial.println("RTC is newer than compile time. (this is expected)");
+  } else if (now == compiled) {
+    Serial.println("RTC is the same as compile time! (not expected but all is fine)");
+  }
 }
 
 void loop() {
-  // Optional: Die Zeit in regelmäßigen Abständen erneut synchronisieren (z.B. einmal täglich)
-  // und die aktuelle Zeit aus der RTC auslesen und anzeigen.
+  RtcDateTime now = Rtc.GetDateTime();
+  Serial.print(now.Hour());
+  Serial.print(":");
+  Serial.println(now.Minute());
+
+  delay(2000);  // five seconds
 }
